@@ -1,0 +1,9 @@
+# github.com/itsabgr/go-handy v0.0.0-20220618155204-8d21f614181e
+## explicit; go 1.18
+github.com/itsabgr/go-handy
+# github.com/mr-tron/base58 v1.1.3
+## explicit; go 1.12
+github.com/mr-tron/base58
+# golang.org/x/exp v0.0.0-20220613132600-b0d781184e0d
+## explicit; go 1.18
+golang.org/x/exp/constraints
