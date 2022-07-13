@@ -1,14 +1,17 @@
 package forwarder
 
 import (
+	"context"
 	"errors"
 	"net"
+	"net/netip"
+	"runtime"
 	"sync/atomic"
 	"time"
 )
 
 type Client struct {
-	bridge     net.PacketConn
+	conn       net.PacketConn
 	id         atomic.Value
 	bridgeAddr net.Addr
 }
@@ -18,7 +21,7 @@ func (c *Client) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 		return 0, nil, nil
 	}
 	for {
-		data, from, err := recv(c.bridge)
+		data, from, err := recv(c.conn)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -34,7 +37,7 @@ func (c *Client) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 
 func (c *Client) Recv() (b []byte, addr net.Addr, err error) {
 	for {
-		data, from, err := recv(c.bridge)
+		data, from, err := recv(c.conn)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -56,11 +59,11 @@ func (c *Client) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return 0, nil
 	}
 	target := addr.(*Addr)
-	return send(c.bridge, target, p)
+	return send(c.conn, target, p)
 }
 
 func (c *Client) Close() error {
-	return c.bridge.Close()
+	return c.conn.Close()
 }
 
 func (c *Client) LocalAddr() net.Addr {
@@ -75,21 +78,77 @@ func (c *Client) Addr() *Addr {
 }
 
 func (c *Client) SetDeadline(t time.Time) error {
-	return c.bridge.SetDeadline(t)
+	return c.conn.SetDeadline(t)
 }
 
 func (c *Client) SetReadDeadline(t time.Time) error {
-	return c.bridge.SetReadDeadline(t)
+	return c.conn.SetReadDeadline(t)
 }
 
 func (c *Client) SetWriteDeadline(t time.Time) error {
-	return c.bridge.SetWriteDeadline(t)
+	return c.conn.SetWriteDeadline(t)
 }
 
 func (c *Client) Ping() error {
-	_, err := send(c.bridge, &Addr{bridge: c.bridgeAddr}, []byte{0, 0, 0, 0})
+	_, err := send(c.conn, &Addr{bridge: c.bridgeAddr}, []byte{0, 0, 0, 0})
 	return err
 }
-func New(bridge net.PacketConn, bridgeAddr net.Addr) *Client {
-	return &Client{bridge: bridge, bridgeAddr: bridgeAddr}
+func (c *Client) waitForAddr(ctx context.Context) error {
+	ctx2, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		defer cancel()
+		for {
+			err := ctx2.Err()
+			if err != nil {
+				break
+			}
+			err = c.Ping()
+			if err != nil {
+				break
+			}
+			time.Sleep(time.Millisecond * 100)
+		}
+	}()
+	go func() {
+		defer cancel()
+		for {
+			err := ctx2.Err()
+			if err != nil {
+				break
+			}
+			_, _, err = c.Recv()
+			if err != nil {
+				break
+			}
+			time.Sleep(time.Millisecond * 100)
+		}
+	}()
+	for c.Addr() == nil {
+		err := ctx2.Err()
+		if err != nil {
+			return err
+		}
+		runtime.Gosched()
+	}
+	return nil
+}
+func ListenCtx(wait context.Context, network, addr, bridge string) (*Client, error) {
+	addrPort, err := netip.ParseAddrPort(bridge)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.ListenPacket(network, addr)
+	if err != nil {
+		return nil, err
+	}
+	cli := New(conn, net.UDPAddrFromAddrPort(addrPort))
+	err = cli.waitForAddr(wait)
+	if err != nil {
+		_ = cli.Close()
+	}
+	return cli, err
+}
+func New(conn net.PacketConn, bridgeAddr net.Addr) *Client {
+	return &Client{conn: conn, bridgeAddr: bridgeAddr}
 }
