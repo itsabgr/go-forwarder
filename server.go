@@ -25,7 +25,8 @@ func Serve(conn net.PacketConn) error {
 			addrPort := netip.AddrPort{}
 			err := addrPort.UnmarshalBinary(pack.Addr())
 			handy.Throw(err)
-			_, err = conn.WriteTo(NewPacket([]byte(from.String()), pack.Data()), net.UDPAddrFromAddrPort(addrPort))
+			sender, _ := netip.MustParseAddrPort(from.String()).MarshalBinary()
+			_, err = conn.WriteTo(NewPacket(sender, pack.Data()), net.UDPAddrFromAddrPort(addrPort))
 			handy.Throw(err)
 		}
 	}
