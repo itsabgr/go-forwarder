@@ -1,12 +1,8 @@
-package forwarder
+package main
 
-import (
-	"github.com/itsabgr/go-handy"
-	"net"
-)
-
-func MustListenPacket(network, addr string) net.PacketConn {
-	conn, err := net.ListenPacket(network, addr)
-	handy.Throw(err)
-	return conn
+func must[R any](r R, e error) R {
+	if e != nil {
+		panic(e)
+	}
+	return r
 }
